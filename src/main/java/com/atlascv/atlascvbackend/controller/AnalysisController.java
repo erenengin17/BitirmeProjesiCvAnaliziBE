@@ -1,12 +1,18 @@
 package com.atlascv.atlascvbackend.controller;
 
 import com.atlascv.atlascvbackend.dto.AnalysisResponse;
-import com.atlascv.atlascvbackend.dto.CreateAnalysisRequest;
+import com.atlascv.atlascvbackend.dto.RunAnalysisRequest;
+import com.atlascv.atlascvbackend.entity.AnalysisFile;
+import com.atlascv.atlascvbackend.entity.AnalysisResult;
 import com.atlascv.atlascvbackend.security.AnalysisService;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/analyses")
@@ -19,9 +25,23 @@ public class AnalysisController {
         this.analysisService = analysisService;
     }
 
-    @PostMapping
-    public ResponseEntity<AnalysisResponse> createAnalysis(@RequestBody CreateAnalysisRequest request) {
-        return ResponseEntity.ok(analysisService.createAnalysis(request));
+    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<AnalysisResponse> createAnalysis(
+            @RequestParam("analysisName") String analysisName,
+            @RequestParam("positionName") String positionName,
+            @RequestParam(value = "description", required = false) String description,
+            @RequestParam("userId") Long userId,
+            @RequestPart("files") MultipartFile[] files
+    ) {
+        return ResponseEntity.ok(
+                analysisService.createAnalysis(
+                        analysisName,
+                        positionName,
+                        description,
+                        userId,
+                        files
+                )
+        );
     }
 
     @GetMapping("/user/{userId}")
@@ -37,5 +57,29 @@ public class AnalysisController {
     @GetMapping("/{analysisId}")
     public ResponseEntity<AnalysisResponse> getAnalysisById(@PathVariable Long analysisId) {
         return ResponseEntity.ok(analysisService.getAnalysisById(analysisId));
+    }
+
+    @PostMapping("/{analysisId}/run")
+    public ResponseEntity<Map<String, Object>> runAnalysis(
+            @PathVariable Long analysisId,
+            @RequestBody RunAnalysisRequest request
+    ) {
+        Long runId = analysisService.runAnalysis(analysisId, request);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("runId", runId);
+        response.put("message", "Analiz çalıştırıldı");
+
+        return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/runs/{runId}/results")
+    public ResponseEntity<List<AnalysisResult>> getRunResults(@PathVariable Long runId) {
+        return ResponseEntity.ok(analysisService.getRunResults(runId));
+    }
+
+    @GetMapping("/{analysisId}/files")
+    public ResponseEntity<List<AnalysisFile>> getAnalysisFiles(@PathVariable Long analysisId) {
+        return ResponseEntity.ok(analysisService.getAnalysisFiles(analysisId));
     }
 }
