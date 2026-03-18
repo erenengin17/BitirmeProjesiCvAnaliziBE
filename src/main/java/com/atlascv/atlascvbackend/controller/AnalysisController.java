@@ -4,6 +4,7 @@ import com.atlascv.atlascvbackend.dto.AnalysisResponse;
 import com.atlascv.atlascvbackend.dto.RunAnalysisRequest;
 import com.atlascv.atlascvbackend.entity.AnalysisFile;
 import com.atlascv.atlascvbackend.entity.AnalysisResult;
+import com.atlascv.atlascvbackend.entity.AnalysisRun;
 import com.atlascv.atlascvbackend.security.AnalysisService;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -81,5 +82,16 @@ public class AnalysisController {
     @GetMapping("/{analysisId}/files")
     public ResponseEntity<List<AnalysisFile>> getAnalysisFiles(@PathVariable Long analysisId) {
         return ResponseEntity.ok(analysisService.getAnalysisFiles(analysisId));
+    }
+    @GetMapping("/{analysisId}/last-run")
+    public ResponseEntity<AnalysisRun> getLastRun(@PathVariable Long analysisId) {
+
+        AnalysisRun run = analysisService.getLastRun(analysisId);
+
+        if (run == null) {
+            return ResponseEntity.noContent().build();
+        }
+
+        return ResponseEntity.ok(run);
     }
 }

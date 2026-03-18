@@ -244,4 +244,9 @@ public class AnalysisService {
         }
         return String.join(",", values);
     }
+    public AnalysisRun getLastRun(Long analysisId) {
+        return analysisRunRepository
+                .findTopByAnalysisIdOrderByCreatedAtDesc(analysisId)
+                .orElse(null);
+    }
 }
