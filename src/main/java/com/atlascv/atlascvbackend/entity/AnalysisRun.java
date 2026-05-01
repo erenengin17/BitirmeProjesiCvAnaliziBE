@@ -1,5 +1,6 @@
 package com.atlascv.atlascvbackend.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
@@ -116,6 +117,7 @@ public class AnalysisRun {
         return createdAt;
     }
 
+    @JsonIgnore
     public Analysis getAnalysis() {
         return analysis;
     }

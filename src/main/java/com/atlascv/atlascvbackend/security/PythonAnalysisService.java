@@ -32,6 +32,7 @@ public class PythonAnalysisService {
             String educationRequirements,
             Double minExperienceYears,
             Boolean requireProjectOrCertificate,
+            Boolean useSemanticSimilarity,
             List<AnalysisFile> files
     ) {
         try {
@@ -48,6 +49,10 @@ public class PythonAnalysisService {
                     "require_project_or_certificate",
                     String.valueOf(requireProjectOrCertificate != null && requireProjectOrCertificate)
             );
+            bodyBuilder.part(
+                    "use_semantic_similarity",
+                    String.valueOf(useSemanticSimilarity == null || useSemanticSimilarity)
+            );
 
             for (AnalysisFile file : files) {
                 System.out.println("PYTHON'A GÖNDERİLEN DOSYA: " + file.getFilePath());
@@ -62,9 +67,13 @@ public class PythonAnalysisService {
                     }
                 };
 
+                String origName = file.getOriginalFileName() != null ? file.getOriginalFileName().toLowerCase() : "";
+                MediaType fileContentType = origName.endsWith(".docx")
+                        ? MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+                        : MediaType.APPLICATION_PDF;
                 bodyBuilder.part("files", resource)
                         .filename(file.getOriginalFileName())
-                        .contentType(MediaType.APPLICATION_PDF);
+                        .contentType(fileContentType);
             }
 
             PythonAnalysisResponse response = webClient.post()
@@ -74,7 +83,7 @@ public class PythonAnalysisService {
                     .bodyValue(bodyBuilder.build())
                     .retrieve()
                     .bodyToMono(PythonAnalysisResponse.class)
-                    .block(Duration.ofSeconds(180));
+                    .block(Duration.ofSeconds(600));
 
             System.out.println("PYTHON SERVICE RESPONSE GELDİ");
             return response;

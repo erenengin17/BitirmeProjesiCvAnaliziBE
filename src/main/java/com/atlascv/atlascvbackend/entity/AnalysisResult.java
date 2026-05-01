@@ -1,5 +1,7 @@
 package com.atlascv.atlascvbackend.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
@@ -54,6 +56,9 @@ public class AnalysisResult {
 
     @Column(columnDefinition = "TEXT")
     private String summary;
+
+    @Column(columnDefinition = "TEXT")
+    private String note;
 
     @Column(nullable = false)
     private LocalDateTime createdAt;
@@ -235,6 +240,14 @@ public class AnalysisResult {
         this.summary = summary;
     }
 
+    public String getNote() {
+        return note;
+    }
+
+    public void setNote(String note) {
+        this.note = note;
+    }
+
     public LocalDateTime getCreatedAt() {
         return createdAt;
     }
@@ -247,11 +260,17 @@ public class AnalysisResult {
         this.analysisRun = analysisRun;
     }
 
+    @JsonIgnore
     public AnalysisFile getAnalysisFile() {
         return analysisFile;
     }
 
     public void setAnalysisFile(AnalysisFile analysisFile) {
         this.analysisFile = analysisFile;
+    }
+
+    @JsonProperty("analysisFileId")
+    public Long getAnalysisFileId() {
+        return analysisFile != null ? analysisFile.getId() : null;
     }
 }

@@ -85,13 +85,48 @@ public class AnalysisController {
     }
     @GetMapping("/{analysisId}/last-run")
     public ResponseEntity<AnalysisRun> getLastRun(@PathVariable Long analysisId) {
-
         AnalysisRun run = analysisService.getLastRun(analysisId);
-
         if (run == null) {
             return ResponseEntity.noContent().build();
         }
-
         return ResponseEntity.ok(run);
+    }
+
+    @GetMapping("/files/{fileId}/content")
+    public ResponseEntity<byte[]> getFileContent(@PathVariable Long fileId) {
+        return analysisService.getFileContent(fileId);
+    }
+
+    @DeleteMapping("/{analysisId}")
+    public ResponseEntity<Void> deleteAnalysis(@PathVariable Long analysisId) {
+        analysisService.deleteAnalysis(analysisId);
+        return ResponseEntity.ok().build();
+    }
+
+    @PatchMapping("/{analysisId}")
+    public ResponseEntity<AnalysisResponse> updateAnalysis(
+            @PathVariable Long analysisId,
+            @RequestBody Map<String, String> body
+    ) {
+        return ResponseEntity.ok(analysisService.updateAnalysis(
+                analysisId,
+                body.get("analysisName"),
+                body.get("positionName"),
+                body.get("description")
+        ));
+    }
+
+    @GetMapping("/{analysisId}/runs")
+    public ResponseEntity<List<AnalysisRun>> getAnalysisRuns(@PathVariable Long analysisId) {
+        return ResponseEntity.ok(analysisService.getAnalysisRuns(analysisId));
+    }
+
+    @PutMapping("/results/{resultId}/note")
+    public ResponseEntity<Void> updateResultNote(
+            @PathVariable Long resultId,
+            @RequestBody Map<String, String> body
+    ) {
+        analysisService.updateResultNote(resultId, body.getOrDefault("note", ""));
+        return ResponseEntity.ok().build();
     }
 }

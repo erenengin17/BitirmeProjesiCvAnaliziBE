@@ -14,9 +14,12 @@ import com.atlascv.atlascvbackend.repository.AnalysisRepository;
 import com.atlascv.atlascvbackend.repository.AnalysisResultRepository;
 import com.atlascv.atlascvbackend.repository.AnalysisRunRepository;
 import com.atlascv.atlascvbackend.repository.UserRepository;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
@@ -155,6 +158,7 @@ public class AnalysisService {
                 joinList(request.getEducationRequirements()),
                 request.getMinExperienceYears(),
                 request.getRequireProjectOrCertificate(),
+                request.getUseSemanticSimilarity(),
                 files
         );
         System.out.println("Python cevabı geldi.");
@@ -244,9 +248,68 @@ public class AnalysisService {
         }
         return String.join(",", values);
     }
+    public void deleteAnalysis(Long analysisId) {
+        List<AnalysisRun> runs = analysisRunRepository.findByAnalysisIdOrderByCreatedAtDesc(analysisId);
+        for (AnalysisRun run : runs) {
+            List<AnalysisResult> results = analysisResultRepository.findByAnalysisRunIdOrderByFinalScoreDesc(run.getId());
+            analysisResultRepository.deleteAll(results);
+        }
+        analysisRunRepository.deleteAll(runs);
+
+        List<AnalysisFile> files = analysisFileRepository.findByAnalysisId(analysisId);
+        for (AnalysisFile file : files) {
+            try { Files.deleteIfExists(Paths.get(file.getFilePath())); } catch (IOException ignored) {}
+        }
+        analysisFileRepository.deleteAll(files);
+
+        analysisRepository.deleteById(analysisId);
+    }
+
+    public AnalysisResponse updateAnalysis(Long analysisId, String analysisName, String positionName, String description) {
+        Analysis analysis = analysisRepository.findById(analysisId)
+                .orElseThrow(() -> new RuntimeException("Analiz bulunamadı. ID: " + analysisId));
+        if (analysisName != null && !analysisName.isBlank()) analysis.setAnalysisName(analysisName);
+        if (positionName != null && !positionName.isBlank()) analysis.setPositionName(positionName);
+        analysis.setDescription(description);
+        return mapToResponse(analysisRepository.save(analysis));
+    }
+
+    public List<AnalysisRun> getAnalysisRuns(Long analysisId) {
+        return analysisRunRepository.findByAnalysisIdOrderByCreatedAtDesc(analysisId);
+    }
+
     public AnalysisRun getLastRun(Long analysisId) {
         return analysisRunRepository
                 .findTopByAnalysisIdOrderByCreatedAtDesc(analysisId)
                 .orElse(null);
+    }
+
+    public void updateResultNote(Long resultId, String note) {
+        AnalysisResult result = analysisResultRepository.findById(resultId)
+                .orElseThrow(() -> new RuntimeException("Sonuç bulunamadı. ID: " + resultId));
+        result.setNote(note);
+        analysisResultRepository.save(result);
+    }
+
+    public ResponseEntity<byte[]> getFileContent(Long fileId) {
+        AnalysisFile file = analysisFileRepository.findById(fileId)
+                .orElseThrow(() -> new RuntimeException("Dosya bulunamadı. ID: " + fileId));
+        try {
+            byte[] bytes = Files.readAllBytes(Paths.get(file.getFilePath()));
+            String fname = file.getOriginalFileName() != null ? file.getOriginalFileName().toLowerCase() : "";
+            String contentType = fname.endsWith(".docx")
+                    ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    : "application/pdf";
+            String disposition = fname.endsWith(".docx")
+                    ? "attachment; filename=\"" + file.getOriginalFileName() + "\""
+                    : "inline; filename=\"" + file.getOriginalFileName() + "\"";
+            return ResponseEntity.ok()
+                    .header("Content-Type", contentType)
+                    .header("Content-Disposition", disposition)
+                    .header("Access-Control-Expose-Headers", "Content-Disposition")
+                    .body(bytes);
+        } catch (IOException e) {
+            throw new RuntimeException("Dosya okunamadı: " + file.getFilePath(), e);
+        }
     }
 }
