@@ -16,13 +16,16 @@ import com.atlascv.atlascvbackend.repository.AnalysisRunRepository;
 import com.atlascv.atlascvbackend.repository.UserRepository;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -72,6 +75,9 @@ public class AnalysisService {
         analysis.setAnalysisName(analysisName);
         analysis.setPositionName(positionName);
         analysis.setDescription(description);
+        if (files != null && files.length > 100) {
+            throw new RuntimeException("Maksimum 100 CV yükleyebilirsiniz.");
+        }
         analysis.setCvCount(files != null ? files.length : 0);
         analysis.setStatus("Bekliyor");
         analysis.setUser(user);
@@ -111,14 +117,14 @@ public class AnalysisService {
                 .collect(Collectors.toList());
     }
 
-    public AnalysisResponse getAnalysisById(Long analysisId) {
+    public AnalysisResponse getAnalysisById(UUID analysisId) {
         Analysis analysis = analysisRepository.findById(analysisId)
                 .orElseThrow(() -> new RuntimeException("Analiz bulunamadı. ID: " + analysisId));
 
         return mapToResponse(analysis);
     }
 
-    public Long runAnalysis(Long analysisId, RunAnalysisRequest request) {
+    public UUID runAnalysis(UUID analysisId, RunAnalysisRequest request) {
         System.out.println("RUN başladı. analysisId = " + analysisId);
 
         Analysis analysis = analysisRepository.findById(analysisId)
@@ -220,11 +226,11 @@ public class AnalysisService {
         return savedRun.getId();
     }
 
-    public List<AnalysisResult> getRunResults(Long runId) {
+    public List<AnalysisResult> getRunResults(UUID runId) {
         return analysisResultRepository.findByAnalysisRunIdOrderByFinalScoreDesc(runId);
     }
 
-    public List<AnalysisFile> getAnalysisFiles(Long analysisId) {
+    public List<AnalysisFile> getAnalysisFiles(UUID analysisId) {
         return analysisFileRepository.findByAnalysisId(analysisId);
     }
 
@@ -248,7 +254,46 @@ public class AnalysisService {
         }
         return String.join(",", values);
     }
-    public void deleteAnalysis(Long analysisId) {
+    public AnalysisResponse cloneAnalysis(UUID sourceAnalysisId, Long userId, String newName) {
+        Analysis source = analysisRepository.findById(sourceAnalysisId)
+                .orElseThrow(() -> new RuntimeException("Analiz bulunamadı. ID: " + sourceAnalysisId));
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("Kullanıcı bulunamadı. ID: " + userId));
+
+        List<AnalysisFile> sourceFiles = analysisFileRepository.findByAnalysisId(sourceAnalysisId);
+
+        Analysis clone = new Analysis();
+        clone.setAnalysisName((newName != null && !newName.isBlank()) ? newName : source.getAnalysisName() + " (Kopya)");
+        clone.setPositionName(source.getPositionName());
+        clone.setDescription(source.getDescription());
+        clone.setCvCount(sourceFiles.size());
+        clone.setStatus("Bekliyor");
+        clone.setUser(user);
+
+        Analysis savedClone = analysisRepository.save(clone);
+
+        for (AnalysisFile sourceFile : sourceFiles) {
+            String newPath = fileStorageService.copyFile(
+                    savedClone.getId(),
+                    Paths.get(sourceFile.getFilePath()),
+                    sourceFile.getOriginalFileName()
+            );
+
+            AnalysisFile newFile = new AnalysisFile();
+            newFile.setAnalysis(savedClone);
+            newFile.setOriginalFileName(sourceFile.getOriginalFileName());
+            newFile.setStoredFileName(Paths.get(newPath).getFileName().toString());
+            newFile.setFilePath(newPath);
+            newFile.setFileSize(sourceFile.getFileSize());
+            newFile.setMimeType(sourceFile.getMimeType());
+            analysisFileRepository.save(newFile);
+        }
+
+        return mapToResponse(savedClone);
+    }
+
+    public void deleteAnalysis(UUID analysisId) {
         List<AnalysisRun> runs = analysisRunRepository.findByAnalysisIdOrderByCreatedAtDesc(analysisId);
         for (AnalysisRun run : runs) {
             List<AnalysisResult> results = analysisResultRepository.findByAnalysisRunIdOrderByFinalScoreDesc(run.getId());
@@ -265,7 +310,7 @@ public class AnalysisService {
         analysisRepository.deleteById(analysisId);
     }
 
-    public AnalysisResponse updateAnalysis(Long analysisId, String analysisName, String positionName, String description) {
+    public AnalysisResponse updateAnalysis(UUID analysisId, String analysisName, String positionName, String description) {
         Analysis analysis = analysisRepository.findById(analysisId)
                 .orElseThrow(() -> new RuntimeException("Analiz bulunamadı. ID: " + analysisId));
         if (analysisName != null && !analysisName.isBlank()) analysis.setAnalysisName(analysisName);
@@ -274,14 +319,56 @@ public class AnalysisService {
         return mapToResponse(analysisRepository.save(analysis));
     }
 
-    public List<AnalysisRun> getAnalysisRuns(Long analysisId) {
+    public List<AnalysisRun> getAnalysisRuns(UUID analysisId) {
         return analysisRunRepository.findByAnalysisIdOrderByCreatedAtDesc(analysisId);
     }
 
-    public AnalysisRun getLastRun(Long analysisId) {
+    public AnalysisRun getLastRun(UUID analysisId) {
         return analysisRunRepository
                 .findTopByAnalysisIdOrderByCreatedAtDesc(analysisId)
                 .orElse(null);
+    }
+
+    public AnalysisRun getRunById(UUID runId) {
+        return analysisRunRepository.findById(runId)
+                .orElseThrow(() -> new RuntimeException("Çalıştırma bulunamadı. ID: " + runId));
+    }
+
+    @Transactional
+    public String explainResult(Long resultId) {
+        AnalysisResult result = analysisResultRepository.findById(resultId)
+                .orElseThrow(() -> new RuntimeException("Sonuç bulunamadı. ID: " + resultId));
+
+        AnalysisRun run = result.getAnalysisRun();
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("candidateName",         result.getCandidateName());
+        body.put("finalScore",            result.getFinalScore());
+        body.put("hardSkillScore",        result.getHardSkillScore());
+        body.put("softSkillScore",        result.getSoftSkillScore());
+        body.put("educationScore",        result.getEducationScore());
+        body.put("experienceScore",       result.getExperienceScore());
+        body.put("projectCertScore",      result.getProjectCertScore());
+        body.put("semanticScore",         result.getSemanticScore());
+        body.put("matchedHardSkills",     splitToList(result.getMatchedHardSkills()));
+        body.put("missingHardSkills",     splitToList(result.getMissingHardSkills()));
+        body.put("matchedSoftSkills",     splitToList(result.getMatchedSoftSkills()));
+        body.put("candidateHardSkills",   splitToList(result.getCandidateHardSkills()));
+        body.put("candidateEducation",    result.getCandidateEducation());
+        body.put("candidateProjects",     splitToList(result.getCandidateProjects()));
+        body.put("candidateCertificates", splitToList(result.getCandidateCertificates()));
+        body.put("experienceYears",       result.getExperienceYears());
+        body.put("requiredHardSkills",    splitToList(run.getHardSkills()));
+        body.put("requiredSoftSkills",    splitToList(run.getSoftSkills()));
+        body.put("requiredEducation",     splitToList(run.getEducationRequirements()));
+        body.put("minExperienceYears",    run.getMinExperienceYears());
+
+        return pythonAnalysisService.callExplain(body);
+    }
+
+    private List<String> splitToList(String value) {
+        if (value == null || value.isBlank()) return List.of();
+        return List.of(value.split(","));
     }
 
     public void updateResultNote(Long resultId, String note) {
@@ -289,6 +376,48 @@ public class AnalysisService {
                 .orElseThrow(() -> new RuntimeException("Sonuç bulunamadı. ID: " + resultId));
         result.setNote(note);
         analysisResultRepository.save(result);
+    }
+
+    public Long getUserIdByEmail(String email) {
+        return userRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("Kullanıcı bulunamadı: " + email))
+                .getId();
+    }
+
+    @Transactional(readOnly = true)
+    public void assertAnalysisOwner(UUID analysisId, Long userId) {
+        Analysis analysis = analysisRepository.findById(analysisId)
+                .orElseThrow(() -> new RuntimeException("Analiz bulunamadı. ID: " + analysisId));
+        if (!analysis.getUser().getId().equals(userId)) {
+            throw new SecurityException("Bu analize erişim yetkiniz yok.");
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public void assertRunOwner(UUID runId, Long userId) {
+        AnalysisRun run = analysisRunRepository.findById(runId)
+                .orElseThrow(() -> new RuntimeException("Çalıştırma bulunamadı. ID: " + runId));
+        if (!run.getAnalysis().getUser().getId().equals(userId)) {
+            throw new SecurityException("Bu çalıştırmaya erişim yetkiniz yok.");
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public void assertResultOwner(Long resultId, Long userId) {
+        AnalysisResult result = analysisResultRepository.findById(resultId)
+                .orElseThrow(() -> new RuntimeException("Sonuç bulunamadı. ID: " + resultId));
+        if (!result.getAnalysisRun().getAnalysis().getUser().getId().equals(userId)) {
+            throw new SecurityException("Bu sonuca erişim yetkiniz yok.");
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public void assertFileOwner(Long fileId, Long userId) {
+        AnalysisFile file = analysisFileRepository.findById(fileId)
+                .orElseThrow(() -> new RuntimeException("Dosya bulunamadı. ID: " + fileId));
+        if (!file.getAnalysis().getUser().getId().equals(userId)) {
+            throw new SecurityException("Bu dosyaya erişim yetkiniz yok.");
+        }
     }
 
     public ResponseEntity<byte[]> getFileContent(Long fileId) {

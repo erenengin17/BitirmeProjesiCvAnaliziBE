@@ -12,7 +12,22 @@ public class FileStorageService {
 
     private final Path root = Paths.get("uploads");
 
-    public String storeFile(Long analysisId, MultipartFile file) {
+    public String copyFile(UUID targetAnalysisId, Path sourcePath, String originalFileName) {
+        try {
+            Path analysisFolder = root.resolve("analysis-" + targetAnalysisId);
+            if (!Files.exists(analysisFolder)) {
+                Files.createDirectories(analysisFolder);
+            }
+            String storedName = UUID.randomUUID() + "_" + originalFileName;
+            Path target = analysisFolder.resolve(storedName);
+            Files.copy(sourcePath, target, StandardCopyOption.REPLACE_EXISTING);
+            return target.toAbsolutePath().toString();
+        } catch (IOException e) {
+            throw new RuntimeException("Dosya kopyalanamadı", e);
+        }
+    }
+
+    public String storeFile(UUID analysisId, MultipartFile file) {
         try {
             if (!Files.exists(root)) {
                 Files.createDirectories(root);

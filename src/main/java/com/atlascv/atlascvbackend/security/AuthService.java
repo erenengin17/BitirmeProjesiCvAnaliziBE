@@ -1,13 +1,11 @@
 package com.atlascv.atlascvbackend.security;
 
-import com.atlascv.atlascvbackend.dto.LoginRequest;
-import com.atlascv.atlascvbackend.dto.LoginResponse;
-import com.atlascv.atlascvbackend.dto.ResendCodeRequest;
-import com.atlascv.atlascvbackend.dto.SignupRequest;
-import com.atlascv.atlascvbackend.dto.VerifyCodeRequest;
+import com.atlascv.atlascvbackend.dto.*;
 import com.atlascv.atlascvbackend.entity.EmailVerificationCode;
+import com.atlascv.atlascvbackend.entity.PasswordResetCode;
 import com.atlascv.atlascvbackend.entity.User;
 import com.atlascv.atlascvbackend.repository.EmailVerificationCodeRepository;
+import com.atlascv.atlascvbackend.repository.PasswordResetCodeRepository;
 import com.atlascv.atlascvbackend.repository.UserRepository;
 import com.atlascv.atlascvbackend.util.VerificationCodeGenerator;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -22,6 +20,7 @@ public class AuthService {
 
     private final UserRepository userRepository;
     private final EmailVerificationCodeRepository codeRepository;
+    private final PasswordResetCodeRepository resetCodeRepository;
     private final PasswordEncoder passwordEncoder;
     private final EmailService emailService;
     private final MailTemplateService mailTemplateService;
@@ -29,12 +28,14 @@ public class AuthService {
 
     public AuthService(UserRepository userRepository,
                        EmailVerificationCodeRepository codeRepository,
+                       PasswordResetCodeRepository resetCodeRepository,
                        PasswordEncoder passwordEncoder,
                        EmailService emailService,
                        MailTemplateService mailTemplateService,
                        JwtService jwtService) {
         this.userRepository = userRepository;
         this.codeRepository = codeRepository;
+        this.resetCodeRepository = resetCodeRepository;
         this.passwordEncoder = passwordEncoder;
         this.emailService = emailService;
         this.mailTemplateService = mailTemplateService;
@@ -129,6 +130,97 @@ public class AuthService {
                 user.getFullName(),
                 user.getEmail()
         );
+    }
+
+    @Transactional
+    public String forgotPassword(ForgotPasswordRequest request) {
+        User user = userRepository.findByEmail(request.getEmail())
+                .orElseThrow(() -> new RuntimeException("Bu email ile kayıtlı hesap bulunamadı."));
+
+        if (!Boolean.TRUE.equals(user.getEnabled())) {
+            throw new RuntimeException("Hesabınız henüz doğrulanmamış.");
+        }
+
+        PasswordResetCode latest = resetCodeRepository
+                .findTopByUserOrderByCreatedAtDesc(user)
+                .orElse(null);
+
+        if (latest != null && latest.getCreatedAt().plusSeconds(60).isAfter(LocalDateTime.now())) {
+            throw new RuntimeException("Tekrar kod istemek için 60 saniye bekleyin.");
+        }
+
+        // Eski kodları geçersiz kıl
+        List<PasswordResetCode> oldCodes = resetCodeRepository.findByUserAndUsedFalse(user);
+        oldCodes.forEach(c -> c.setUsed(true));
+        resetCodeRepository.saveAll(oldCodes);
+
+        String rawCode = VerificationCodeGenerator.generateCode();
+
+        PasswordResetCode code = new PasswordResetCode();
+        code.setUser(user);
+        code.setCode(rawCode);
+        code.setExpiresAt(LocalDateTime.now().plusMinutes(15));
+        code.setUsed(false);
+        code.setCreatedAt(LocalDateTime.now());
+        resetCodeRepository.save(code);
+
+        String html = mailTemplateService.buildPasswordResetMail(user.getFullName(), rawCode);
+        emailService.sendHtmlMail(user.getEmail(), "AtlasCV Şifre Sıfırlama Kodunuz", html);
+
+        return "Şifre sıfırlama kodu email adresinize gönderildi.";
+    }
+
+    @Transactional
+    public String resetPassword(ResetPasswordRequest request) {
+        User user = userRepository.findByEmail(request.getEmail())
+                .orElseThrow(() -> new RuntimeException("Kullanıcı bulunamadı."));
+
+        PasswordResetCode latestCode = resetCodeRepository
+                .findTopByUserOrderByCreatedAtDesc(user)
+                .orElseThrow(() -> new RuntimeException("Şifre sıfırlama kodu bulunamadı."));
+
+        if (Boolean.TRUE.equals(latestCode.getUsed())) {
+            throw new RuntimeException("Bu kod daha önce kullanılmış.");
+        }
+
+        if (latestCode.getExpiresAt().isBefore(LocalDateTime.now())) {
+            throw new RuntimeException("Kodun süresi dolmuş. Lütfen yeni kod isteyin.");
+        }
+
+        if (!request.getCode().equals(latestCode.getCode())) {
+            throw new RuntimeException("Kod hatalı.");
+        }
+
+        if (request.getNewPassword() == null || request.getNewPassword().length() < 6) {
+            throw new RuntimeException("Yeni şifre en az 6 karakter olmalıdır.");
+        }
+
+        latestCode.setUsed(true);
+        resetCodeRepository.save(latestCode);
+
+        user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        userRepository.save(user);
+
+        return "Şifreniz başarıyla güncellendi.";
+    }
+
+    @Transactional
+    public String changePassword(String email, ChangePasswordRequest request) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("Kullanıcı bulunamadı."));
+
+        if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPassword())) {
+            throw new RuntimeException("Mevcut şifre hatalı.");
+        }
+
+        if (request.getNewPassword() == null || request.getNewPassword().length() < 6) {
+            throw new RuntimeException("Yeni şifre en az 6 karakter olmalıdır.");
+        }
+
+        user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        userRepository.save(user);
+
+        return "Şifreniz başarıyla güncellendi.";
     }
 
     private void createAndSendVerificationCode(User user) {

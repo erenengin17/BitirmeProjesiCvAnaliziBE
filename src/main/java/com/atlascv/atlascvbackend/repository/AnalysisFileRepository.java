@@ -4,8 +4,9 @@ import com.atlascv.atlascvbackend.entity.AnalysisFile;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
+import java.util.UUID;
 
 public interface AnalysisFileRepository extends JpaRepository<AnalysisFile, Long> {
 
-    List<AnalysisFile> findByAnalysisId(Long analysisId);
+    List<AnalysisFile> findByAnalysisId(UUID analysisId);
 }

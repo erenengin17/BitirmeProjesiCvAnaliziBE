@@ -13,6 +13,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class PythonAnalysisService {
@@ -98,6 +99,23 @@ public class PythonAnalysisService {
             System.out.println("PYTHON SERVICE GENEL HATA:");
             e.printStackTrace();
             throw new RuntimeException("Python servisine giderken hata oluştu.", e);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    public String callExplain(Map<String, Object> body) {
+        try {
+            Map<String, Object> response = webClient.post()
+                    .uri("/explain")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block(Duration.ofSeconds(60));
+            return response != null ? (String) response.get("explanation") : "Açıklama oluşturulamadı.";
+        } catch (Exception e) {
+            System.out.println("[Explain] Python hatası: " + e.getMessage());
+            return "Puan gerekçesi şu an oluşturulamıyor.";
         }
     }
 }

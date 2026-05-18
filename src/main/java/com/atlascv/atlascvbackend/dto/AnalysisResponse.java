@@ -1,10 +1,11 @@
 package com.atlascv.atlascvbackend.dto;
 
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 public class AnalysisResponse {
 
-    private Long id;
+    private UUID id;
     private String analysisName;
     private String positionName;
     private String description;
@@ -14,11 +15,11 @@ public class AnalysisResponse {
     private Long userId;
     private String userFullName;
 
-    public Long getId() {
+    public UUID getId() {
         return id;
     }
 
-    public void setId(Long id) {
+    public void setId(UUID id) {
         this.id = id;
     }
 
