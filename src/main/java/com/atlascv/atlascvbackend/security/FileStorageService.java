@@ -40,7 +40,17 @@ public class FileStorageService {
             }
 
             String originalName = file.getOriginalFilename();
-            String storedName = UUID.randomUUID() + "_" + originalName;
+            if (originalName == null || originalName.isBlank()) {
+                originalName = "unknown.pdf";
+            }
+            // Windows'ta geçersiz karakter temizleme
+            String safeName = originalName.replaceAll("[<>:\"/\\\\|?*]", "_");
+            // MAX_PATH limiti için kırpma (260 - base path ~120 - UUID prefix 37 = 100 karakter)
+            if (safeName.length() > 100) {
+                String ext = safeName.contains(".") ? safeName.substring(safeName.lastIndexOf('.')) : "";
+                safeName = safeName.substring(0, 95 - ext.length()) + ext;
+            }
+            String storedName = UUID.randomUUID() + "_" + safeName;
 
             Path target = analysisFolder.resolve(storedName);
 
@@ -49,7 +59,7 @@ public class FileStorageService {
             return target.toAbsolutePath().toString();
 
         } catch (IOException e) {
-            throw new RuntimeException("Dosya kaydedilemedi", e);
+            throw new RuntimeException("Dosya kaydedilemedi [" + file.getOriginalFilename() + "]: " + e.getMessage(), e);
         }
     }
 }

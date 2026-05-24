@@ -101,4 +101,5 @@ public class MailTemplateService {
             </html>
             """.formatted(fullName, code);
     }
+
 }

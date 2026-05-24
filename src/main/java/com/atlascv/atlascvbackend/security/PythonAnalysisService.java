@@ -118,4 +118,23 @@ public class PythonAnalysisService {
             return "Puan gerekçesi şu an oluşturulamıyor.";
         }
     }
+
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> callExtractJob(String jobText) {
+        try {
+            Map<String, Object> body = new java.util.HashMap<>();
+            body.put("job_text", jobText);
+            Map<String, Object> response = webClient.post()
+                    .uri("/extract-job")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block(Duration.ofSeconds(30));
+            return response != null ? response : new java.util.HashMap<>();
+        } catch (Exception e) {
+            System.out.println("[ExtractJob] Python hatası: " + e.getMessage());
+            throw new RuntimeException("İş ilanı analizi şu an kullanılamıyor.");
+        }
+    }
 }

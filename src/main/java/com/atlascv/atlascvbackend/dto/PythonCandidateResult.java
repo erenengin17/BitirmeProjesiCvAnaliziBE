@@ -65,6 +65,9 @@ public class PythonCandidateResult {
     @JsonProperty("summary")
     private String summary;
 
+    @JsonProperty("candidate_email")
+    private String candidateEmail;
+
     public String getCandidateName() {
         return candidateName;
     }
@@ -223,5 +226,13 @@ public class PythonCandidateResult {
 
     public void setSummary(String summary) {
         this.summary = summary;
+    }
+
+    public String getCandidateEmail() {
+        return candidateEmail;
+    }
+
+    public void setCandidateEmail(String candidateEmail) {
+        this.candidateEmail = candidateEmail;
     }
 }

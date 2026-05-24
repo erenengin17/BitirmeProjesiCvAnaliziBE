@@ -1,18 +1,22 @@
 package com.atlascv.atlascvbackend.security;
 
 import com.atlascv.atlascvbackend.dto.AnalysisResponse;
+import com.atlascv.atlascvbackend.dto.PipelineResultDto;
 import com.atlascv.atlascvbackend.dto.PythonAnalysisResponse;
 import com.atlascv.atlascvbackend.dto.PythonCandidateResult;
 import com.atlascv.atlascvbackend.dto.RunAnalysisRequest;
+import com.atlascv.atlascvbackend.dto.StageLogDto;
 import com.atlascv.atlascvbackend.entity.Analysis;
 import com.atlascv.atlascvbackend.entity.AnalysisFile;
 import com.atlascv.atlascvbackend.entity.AnalysisResult;
 import com.atlascv.atlascvbackend.entity.AnalysisRun;
+import com.atlascv.atlascvbackend.entity.CandidateStatusLog;
 import com.atlascv.atlascvbackend.entity.User;
 import com.atlascv.atlascvbackend.repository.AnalysisFileRepository;
 import com.atlascv.atlascvbackend.repository.AnalysisRepository;
 import com.atlascv.atlascvbackend.repository.AnalysisResultRepository;
 import com.atlascv.atlascvbackend.repository.AnalysisRunRepository;
+import com.atlascv.atlascvbackend.repository.CandidateStatusLogRepository;
 import com.atlascv.atlascvbackend.repository.UserRepository;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
@@ -36,6 +40,7 @@ public class AnalysisService {
     private final AnalysisFileRepository analysisFileRepository;
     private final AnalysisRunRepository analysisRunRepository;
     private final AnalysisResultRepository analysisResultRepository;
+    private final CandidateStatusLogRepository statusLogRepository;
     private final FileStorageService fileStorageService;
     private final PythonAnalysisService pythonAnalysisService;
 
@@ -45,6 +50,7 @@ public class AnalysisService {
             AnalysisFileRepository analysisFileRepository,
             AnalysisRunRepository analysisRunRepository,
             AnalysisResultRepository analysisResultRepository,
+            CandidateStatusLogRepository statusLogRepository,
             FileStorageService fileStorageService,
             PythonAnalysisService pythonAnalysisService
     ) {
@@ -53,10 +59,12 @@ public class AnalysisService {
         this.analysisFileRepository = analysisFileRepository;
         this.analysisRunRepository = analysisRunRepository;
         this.analysisResultRepository = analysisResultRepository;
+        this.statusLogRepository = statusLogRepository;
         this.fileStorageService = fileStorageService;
         this.pythonAnalysisService = pythonAnalysisService;
     }
 
+    @Transactional
     public AnalysisResponse createAnalysis(
             String analysisName,
             String positionName,
@@ -90,7 +98,8 @@ public class AnalysisService {
 
                 AnalysisFile analysisFile = new AnalysisFile();
                 analysisFile.setAnalysis(savedAnalysis);
-                analysisFile.setOriginalFileName(file.getOriginalFilename());
+                String origName = file.getOriginalFilename();
+                analysisFile.setOriginalFileName(origName != null ? origName : "unknown.pdf");
                 analysisFile.setStoredFileName(Paths.get(savedPath).getFileName().toString());
                 analysisFile.setFilePath(savedPath);
                 analysisFile.setFileSize(file.getSize());
@@ -214,6 +223,7 @@ public class AnalysisService {
             result.setCandidateProjects(joinList(item.getCandidateProjects()));
             result.setExperienceYears(item.getExperienceYears());
             result.setSummary(item.getSummary());
+            result.setCandidateEmail(item.getCandidateEmail());
 
             analysisResultRepository.save(result);
             System.out.println("Result DB'ye yazıldı: " + item.getCandidateName());
@@ -254,6 +264,7 @@ public class AnalysisService {
         }
         return String.join(",", values);
     }
+    @Transactional
     public AnalysisResponse cloneAnalysis(UUID sourceAnalysisId, Long userId, String newName) {
         Analysis source = analysisRepository.findById(sourceAnalysisId)
                 .orElseThrow(() -> new RuntimeException("Analiz bulunamadı. ID: " + sourceAnalysisId));
@@ -274,17 +285,11 @@ public class AnalysisService {
         Analysis savedClone = analysisRepository.save(clone);
 
         for (AnalysisFile sourceFile : sourceFiles) {
-            String newPath = fileStorageService.copyFile(
-                    savedClone.getId(),
-                    Paths.get(sourceFile.getFilePath()),
-                    sourceFile.getOriginalFileName()
-            );
-
             AnalysisFile newFile = new AnalysisFile();
             newFile.setAnalysis(savedClone);
             newFile.setOriginalFileName(sourceFile.getOriginalFileName());
-            newFile.setStoredFileName(Paths.get(newPath).getFileName().toString());
-            newFile.setFilePath(newPath);
+            newFile.setStoredFileName(sourceFile.getStoredFileName());
+            newFile.setFilePath(sourceFile.getFilePath());
             newFile.setFileSize(sourceFile.getFileSize());
             newFile.setMimeType(sourceFile.getMimeType());
             analysisFileRepository.save(newFile);
@@ -293,10 +298,14 @@ public class AnalysisService {
         return mapToResponse(savedClone);
     }
 
+    @Transactional
     public void deleteAnalysis(UUID analysisId) {
         List<AnalysisRun> runs = analysisRunRepository.findByAnalysisIdOrderByCreatedAtDesc(analysisId);
         for (AnalysisRun run : runs) {
             List<AnalysisResult> results = analysisResultRepository.findByAnalysisRunIdOrderByFinalScoreDesc(run.getId());
+            for (AnalysisResult result : results) {
+                statusLogRepository.deleteByResultId(result.getId());
+            }
             analysisResultRepository.deleteAll(results);
         }
         analysisRunRepository.deleteAll(runs);
@@ -310,6 +319,7 @@ public class AnalysisService {
         analysisRepository.deleteById(analysisId);
     }
 
+    @Transactional
     public AnalysisResponse updateAnalysis(UUID analysisId, String analysisName, String positionName, String description) {
         Analysis analysis = analysisRepository.findById(analysisId)
                 .orElseThrow(() -> new RuntimeException("Analiz bulunamadı. ID: " + analysisId));
@@ -366,15 +376,90 @@ public class AnalysisService {
         return pythonAnalysisService.callExplain(body);
     }
 
+    public Map<String, Object> extractJobPosting(String jobText) {
+        return pythonAnalysisService.callExtractJob(jobText);
+    }
+
     private List<String> splitToList(String value) {
         if (value == null || value.isBlank()) return List.of();
         return List.of(value.split(","));
     }
 
+    @Transactional
     public void updateResultNote(Long resultId, String note) {
         AnalysisResult result = analysisResultRepository.findById(resultId)
                 .orElseThrow(() -> new RuntimeException("Sonuç bulunamadı. ID: " + resultId));
         result.setNote(note);
+        analysisResultRepository.save(result);
+    }
+
+    @Transactional
+    public void updateResultStatus(Long resultId, com.atlascv.atlascvbackend.entity.CandidateStatus status) {
+        AnalysisResult result = analysisResultRepository.findById(resultId)
+                .orElseThrow(() -> new RuntimeException("Sonuç bulunamadı. ID: " + resultId));
+
+        CandidateStatusLog log = new CandidateStatusLog();
+        log.setResult(result);
+        log.setFromStatus(result.getStatus());
+        log.setToStatus(status);
+        statusLogRepository.save(log);
+
+        result.setStatus(status);
+        analysisResultRepository.save(result);
+    }
+
+    public List<StageLogDto> getStageLog(Long resultId) {
+        return statusLogRepository.findByResultIdOrderByChangedAtAsc(resultId)
+                .stream()
+                .map(l -> new StageLogDto(l.getId(), l.getFromStatus().name(), l.getToStatus().name(), l.getChangedAt()))
+                .collect(Collectors.toList());
+    }
+
+
+    @Transactional
+    public void bulkUpdateStatus(java.util.List<Long> resultIds, com.atlascv.atlascvbackend.entity.CandidateStatus status) {
+        if (resultIds == null || resultIds.isEmpty()) return;
+        analysisResultRepository.bulkUpdateStatus(resultIds, status);
+    }
+
+    public List<PipelineResultDto> getPipelineResults(Long userId) {
+        return analysisResultRepository.findLatestRunResultsByUserId(userId)
+                .stream()
+                .map(this::mapToPipelineDto)
+                .collect(Collectors.toList());
+    }
+
+    private PipelineResultDto mapToPipelineDto(AnalysisResult result) {
+        PipelineResultDto dto = new PipelineResultDto();
+        dto.setId(result.getId());
+        dto.setCandidateName(result.getCandidateName());
+        dto.setFileName(result.getFileName());
+        dto.setFinalScore(result.getFinalScore() != null ? result.getFinalScore() : 0);
+        dto.setStatus(result.getStatus() != null ? result.getStatus().name() : "BEKLEMEDE");
+        dto.setMatchedHardSkills(result.getMatchedHardSkills());
+        dto.setMissingHardSkills(result.getMissingHardSkills());
+        dto.setMatchedSoftSkills(result.getMatchedSoftSkills());
+        dto.setExperienceYears(result.getExperienceYears() != null ? result.getExperienceYears() : 0);
+        dto.setSummary(result.getSummary());
+        dto.setNote(result.getNote());
+        dto.setAnalysisFileId(result.getAnalysisFile() != null ? result.getAnalysisFile().getId() : null);
+        dto.setCandidateEmail(result.getCandidateEmail());
+        AnalysisRun run = result.getAnalysisRun();
+        dto.setRunId(run.getId());
+        Analysis analysis = run.getAnalysis();
+        dto.setAnalysisId(analysis.getId());
+        dto.setAnalysisName(analysis.getAnalysisName());
+        dto.setPositionName(analysis.getPositionName());
+        dto.setAnalysisCreatedAt(analysis.getCreatedAt());
+        dto.setInterviewDate(result.getInterviewDate());
+        return dto;
+    }
+
+    @Transactional
+    public void updateInterviewDate(Long resultId, java.time.LocalDateTime interviewDate) {
+        AnalysisResult result = analysisResultRepository.findById(resultId)
+                .orElseThrow(() -> new RuntimeException("Sonuç bulunamadı. ID: " + resultId));
+        result.setInterviewDate(interviewDate);
         analysisResultRepository.save(result);
     }
 

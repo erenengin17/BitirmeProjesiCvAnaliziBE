@@ -60,6 +60,14 @@ public class AnalysisResult {
     @Column(columnDefinition = "TEXT")
     private String note;
 
+    private String candidateEmail;
+
+    private LocalDateTime interviewDate;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, columnDefinition = "VARCHAR(50)")
+    private CandidateStatus status = CandidateStatus.BEKLEMEDE;
+
     @Column(nullable = false)
     private LocalDateTime createdAt;
 
@@ -246,6 +254,30 @@ public class AnalysisResult {
 
     public void setNote(String note) {
         this.note = note;
+    }
+
+    public String getCandidateEmail() {
+        return candidateEmail;
+    }
+
+    public void setCandidateEmail(String candidateEmail) {
+        this.candidateEmail = candidateEmail;
+    }
+
+    public LocalDateTime getInterviewDate() {
+        return interviewDate;
+    }
+
+    public void setInterviewDate(LocalDateTime interviewDate) {
+        this.interviewDate = interviewDate;
+    }
+
+    public CandidateStatus getStatus() {
+        return status;
+    }
+
+    public void setStatus(CandidateStatus status) {
+        this.status = status;
     }
 
     public LocalDateTime getCreatedAt() {

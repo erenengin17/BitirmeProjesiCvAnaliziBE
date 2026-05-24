@@ -1,7 +1,9 @@
 package com.atlascv.atlascvbackend.controller;
 
 import com.atlascv.atlascvbackend.dto.AnalysisResponse;
+import com.atlascv.atlascvbackend.dto.PipelineResultDto;
 import com.atlascv.atlascvbackend.dto.RunAnalysisRequest;
+import com.atlascv.atlascvbackend.dto.StageLogDto;
 import com.atlascv.atlascvbackend.entity.AnalysisFile;
 import com.atlascv.atlascvbackend.entity.AnalysisResult;
 import com.atlascv.atlascvbackend.entity.AnalysisRun;
@@ -51,6 +53,12 @@ public class AnalysisController {
     public ResponseEntity<List<AnalysisResponse>> getUserAnalyses(Authentication authentication) {
         Long userId = analysisService.getUserIdByEmail(authentication.getName());
         return ResponseEntity.ok(analysisService.getUserAnalyses(userId));
+    }
+
+    @GetMapping("/my/pipeline")
+    public ResponseEntity<List<PipelineResultDto>> getPipelineResults(Authentication authentication) {
+        Long userId = analysisService.getUserIdByEmail(authentication.getName());
+        return ResponseEntity.ok(analysisService.getPipelineResults(userId));
     }
 
     @GetMapping("/my/recent")
@@ -201,6 +209,34 @@ public class AnalysisController {
         return ResponseEntity.ok(analysisService.cloneAnalysis(analysisId, userId, newName));
     }
 
+    @PostMapping("/extract-job")
+    public ResponseEntity<Map<String, Object>> extractJob(
+            @RequestBody Map<String, String> body,
+            Authentication authentication
+    ) {
+        String jobText = body != null ? body.get("jobText") : null;
+        if (jobText == null || jobText.isBlank()) {
+            return ResponseEntity.badRequest().build();
+        }
+        return ResponseEntity.ok(analysisService.extractJobPosting(jobText));
+    }
+
+    @PutMapping("/results/{resultId}/interview-date")
+    public ResponseEntity<Void> updateInterviewDate(
+            @PathVariable Long resultId,
+            @RequestBody Map<String, String> body,
+            Authentication authentication
+    ) {
+        Long userId = analysisService.getUserIdByEmail(authentication.getName());
+        analysisService.assertResultOwner(resultId, userId);
+        String dateStr = body.get("interviewDate");
+        java.time.LocalDateTime interviewDate = (dateStr != null && !dateStr.isBlank())
+                ? java.time.LocalDateTime.parse(dateStr.replace("Z", "").substring(0, 19))
+                : null;
+        analysisService.updateInterviewDate(resultId, interviewDate);
+        return ResponseEntity.ok().build();
+    }
+
     @PutMapping("/results/{resultId}/note")
     public ResponseEntity<Void> updateResultNote(
             @PathVariable Long resultId,
@@ -210,6 +246,46 @@ public class AnalysisController {
         Long userId = analysisService.getUserIdByEmail(authentication.getName());
         analysisService.assertResultOwner(resultId, userId);
         analysisService.updateResultNote(resultId, body.getOrDefault("note", ""));
+        return ResponseEntity.ok().build();
+    }
+
+    @PatchMapping("/results/{resultId}/status")
+    public ResponseEntity<Void> updateResultStatus(
+            @PathVariable Long resultId,
+            @RequestBody Map<String, String> body,
+            Authentication authentication
+    ) {
+        Long userId = analysisService.getUserIdByEmail(authentication.getName());
+        analysisService.assertResultOwner(resultId, userId);
+        com.atlascv.atlascvbackend.entity.CandidateStatus status =
+                com.atlascv.atlascvbackend.entity.CandidateStatus.valueOf(body.get("status"));
+        analysisService.updateResultStatus(resultId, status);
+        return ResponseEntity.ok().build();
+    }
+
+    @GetMapping("/results/{resultId}/stage-log")
+    public ResponseEntity<List<StageLogDto>> getStageLog(
+            @PathVariable Long resultId,
+            Authentication authentication
+    ) {
+        Long userId = analysisService.getUserIdByEmail(authentication.getName());
+        analysisService.assertResultOwner(resultId, userId);
+        return ResponseEntity.ok(analysisService.getStageLog(resultId));
+    }
+
+    @PatchMapping("/results/bulk-status")
+    public ResponseEntity<Void> bulkUpdateStatus(
+            @RequestBody Map<String, Object> body,
+            Authentication authentication
+    ) {
+        Long userId = analysisService.getUserIdByEmail(authentication.getName());
+        @SuppressWarnings("unchecked")
+        List<Integer> rawIds = (List<Integer>) body.get("resultIds");
+        List<Long> resultIds = rawIds.stream().map(Long::valueOf).collect(java.util.stream.Collectors.toList());
+        resultIds.forEach(id -> analysisService.assertResultOwner(id, userId));
+        com.atlascv.atlascvbackend.entity.CandidateStatus status =
+                com.atlascv.atlascvbackend.entity.CandidateStatus.valueOf((String) body.get("status"));
+        analysisService.bulkUpdateStatus(resultIds, status);
         return ResponseEntity.ok().build();
     }
 }
